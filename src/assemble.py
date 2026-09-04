@@ -20,7 +20,8 @@ def _load(path: Path, gain_db: float, fade_in: float, fade_out: float) -> AudioS
     return seg
 
 
-def assemble(timeline, segments_dir: Path, output_dir: Path) -> tuple[Path, Path]:
+def assemble(timeline, segments_root: Path, output_dir: Path) -> tuple[Path, Path]:
+    segments_dir = segments_root / timeline.episode
     voice_path = output_dir / "voice_track.wav"
     beds_path = output_dir / "beds.json"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -68,7 +69,10 @@ def assemble(timeline, segments_dir: Path, output_dir: Path) -> tuple[Path, Path
         beds.append(open_bed)
 
     main.export(voice_path, format="wav")
-    beds_path.write_text(json.dumps({"total_ms": len(main), "beds": beds}, ensure_ascii=False, indent=2), encoding="utf-8")
+    beds_path.write_text(
+        json.dumps({"episode": timeline.episode, "total_ms": len(main), "beds": beds}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     if missing:
         print("[warn] skipped missing assets:")

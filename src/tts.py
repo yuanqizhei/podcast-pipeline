@@ -52,7 +52,7 @@ class DryRunProvider(TTSProvider):
             .set_channels(1)
         )
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        seg.export(out_path, format="wav")
+        seg.export(out_path, format="mp3")
 
 
 class MiniMaxProvider(TTSProvider):
@@ -106,9 +106,16 @@ class MiniMaxProvider(TTSProvider):
                 "channel": 1,
             },
         }
+        last_err = "unknown error"
         for attempt in range(3):
-            resp = requests.post(url, headers=self._headers(), json=body, timeout=120)
-            if resp.status_code == 429:
+            try:
+                resp = requests.post(url, headers=self._headers(), json=body, timeout=120)
+            except requests.exceptions.RequestException as e:
+                last_err = f"{type(e).__name__}: {e}"
+                time.sleep(3 * (attempt + 1))
+                continue
+            if resp.status_code == 429 or resp.status_code >= 500:
+                last_err = f"HTTP {resp.status_code}"
                 time.sleep(3 * (attempt + 1))
                 continue
             resp.raise_for_status()
@@ -120,7 +127,7 @@ class MiniMaxProvider(TTSProvider):
                 return bytes.fromhex(audio_field)
             except ValueError:
                 return base64.b64decode(audio_field)
-        raise RuntimeError("t2a failed after retries (rate limited)")
+        raise RuntimeError(f"t2a failed after 3 retries: {last_err}")
 
     def synthesize(self, text: str, out_path: Path) -> None:
         chunks = split_text(text)
@@ -133,7 +140,7 @@ class MiniMaxProvider(TTSProvider):
             tmp.unlink(missing_ok=True)
         merged = segments[0]
         for seg in segments[1:]:
-            merged += seg
+            merged = merged.append(seg, crossfade=15)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         merged.export(out_path, format="mp3")
 
@@ -142,11 +149,16 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def synthesize_timeline(items, segments_dir: Path, provider: TTSProvider, force: bool = False) -> list[Path]:
+def synthesize_timeline(timeline, segments_root: Path, provider: TTSProvider, force: bool = False) -> list[Path]:
+    segments_dir = segments_root / timeline.episode
     meta_path = segments_dir / "meta.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        print(f"[warn] meta.json unreadable, resetting cache index: {meta_path}")
+        meta = {}
     produced: list[Path] = []
-    for item in items:
+    for item in timeline.items:
         if item.type != "speech":
             continue
         out_path = segments_dir / f"{item.id}.mp3"
