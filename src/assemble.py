@@ -20,11 +20,16 @@ def _load(path: Path, gain_db: float, fade_in: float, fade_out: float) -> AudioS
     return seg
 
 
-def assemble(timeline, segments_root: Path, output_dir: Path) -> tuple[Path, Path]:
+def assemble(timeline, segments_root: Path, output_dir: Path, on_event=None) -> tuple[Path, Path]:
+    def emit(event: dict) -> None:
+        if on_event:
+            on_event(event)
+
     segments_dir = segments_root / timeline.episode
     voice_path = output_dir / "voice_track.wav"
     beds_path = output_dir / "beds.json"
     output_dir.mkdir(parents=True, exist_ok=True)
+    emit({"stage": "assemble", "kind": "start"})
 
     main = AudioSegment.silent(duration=0, frame_rate=SAMPLE_RATE).set_sample_width(2).set_channels(1)
     beds: list[dict] = []
@@ -75,8 +80,9 @@ def assemble(timeline, segments_root: Path, output_dir: Path) -> tuple[Path, Pat
     )
 
     if missing:
-        print("[warn] skipped missing assets:")
-        for m in missing:
-            print(f"  - {m}")
+        msg = "[warn] skipped missing assets: " + ", ".join(missing)
+        print(msg)
+        emit({"stage": "assemble", "kind": "log", "message": msg})
     print(f"voice track: {voice_path} ({len(main) / 1000:.1f}s), beds: {len(beds)}")
+    emit({"stage": "assemble", "kind": "done", "total_ms": len(main), "beds": len(beds), "missing": len(missing)})
     return voice_path, beds_path

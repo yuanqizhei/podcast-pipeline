@@ -149,27 +149,45 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def synthesize_timeline(timeline, segments_root: Path, provider: TTSProvider, force: bool = False) -> list[Path]:
+def synthesize_timeline(timeline, segments_root: Path, provider: TTSProvider, force: bool = False, on_event=None) -> list[Path]:
+    def emit(event: dict) -> None:
+        if on_event:
+            on_event(event)
+
     segments_dir = segments_root / timeline.episode
     meta_path = segments_dir / "meta.json"
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
     except (json.JSONDecodeError, OSError):
         print(f"[warn] meta.json unreadable, resetting cache index: {meta_path}")
+        emit({"stage": "tts", "kind": "log", "message": "[warn] meta.json unreadable, resetting cache index"})
         meta = {}
+    speech_items = [i for i in timeline.items if i.type == "speech"]
+    total = len(speech_items)
+    emit({"stage": "tts", "kind": "start", "total": total})
     produced: list[Path] = []
-    for item in timeline.items:
-        if item.type != "speech":
-            continue
+    for idx, item in enumerate(speech_items, start=1):
         out_path = segments_dir / f"{item.id}.mp3"
         h = text_hash(item.text)
-        if not force and out_path.exists() and meta.get(item.id) == h:
+        cached = not force and out_path.exists() and meta.get(item.id) == h
+        emit(
+            {
+                "stage": "tts",
+                "kind": "progress",
+                "current": idx,
+                "total": total,
+                "id": item.id,
+                "cached": cached,
+            }
+        )
+        if cached:
             produced.append(out_path)
             continue
         provider.synthesize(item.text, out_path)
         meta[item.id] = h
         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         produced.append(out_path)
+    emit({"stage": "tts", "kind": "done", "total": total})
     return produced
 
 

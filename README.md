@@ -4,6 +4,8 @@
 
 基于 AI 语音合成（你自己的克隆声音）+ 自动混音（背景音乐、环境音效、BGM 闪避、响度归一）的全自动播客生产流水线。首期节目《终点线一直在挪》——一期关于"人生终点"的人生感悟类独白播客。
 
+**CLI 与 Web Studio 双形态**：除命令行外，内置本地 Web 控制台（Flask + Vue 3），脚本编辑、发起构建、实时日志、素材管理、声音克隆全部图形化操作。
+
 ```
 script/episode01.txt  ──►  你克隆的声音朗读  ──►  自动混入音乐音效  ──►  episode01_final.mp3
      （口播稿）              （MiniMax TTS）         （ffmpeg 闪避混音）        （-16 LUFS，可直接发布）
@@ -18,12 +20,14 @@ script/episode01.txt  ──►  你克隆的声音朗读  ──►  自动混�
 - **试听模式**：`--limit 3` 先出 30 秒小样验证音色语速，满意再跑全片
 - **容错设计**：音乐/音效素材缺失不阻塞出片（警告跳过）；脚本指令错误带行号提示；兼容 Windows 记事本的 UTF-8 BOM
 - **零成本验证**：`dryrun` 模式用静音替代真实合成，不花一分钱跑通全流程
+- **Web Studio**：本地可视化控制台——语法高亮脚本编辑器、时间轴预览、一键构建、SSE 实时进度日志、素材库、语音缓存管理
 
 ## 环境要求
 
 - Python 3.10+（3.13 需额外装 `audioop-lts`，已含在 requirements.txt）
 - ffmpeg + ffprobe（须在 PATH，或位于 `~/miniconda3` 等常见位置——脚本会自动探测）
 - [MiniMax 开放平台](https://platform.minimaxi.com)账号（真实合成时）
+- Node.js 18+（仅 Web Studio：构建前端 / 开发模式）
 
 ## 快速开始
 
@@ -89,6 +93,47 @@ python -m src.cli build script/episode01.txt --provider dryrun
 
 成品输出：`audio/output/episode01_final.mp3`（44.1kHz / 128kbps / -16 LUFS），可直接上传小宇宙、喜马拉雅、Apple Podcasts。
 
+## Web Studio（本地控制台）
+
+图形化完成全部生产流程，无需记命令。
+
+### 启动
+
+```bash
+# 首次使用需构建前端（需 Node.js 18+）
+cd frontend
+npm install
+npm run build
+cd ..
+
+# 一键启动（自动托管前端构建产物）
+python run.py          # → http://127.0.0.1:5000
+```
+
+前端开发模式（改 Vue 代码热更新）：
+
+```bash
+python run.py                     # 终端 1：后端 :5000
+cd frontend && npm run dev        # 终端 2：Vite :5173（/api、/audio 自动代理）
+```
+
+### 页面功能
+
+| 页面 | 功能 |
+|------|------|
+| 仪表盘 | 各集总览（语音块/字数/缓存段/成品状态）、缺失素材提示、新建/删除脚本 |
+| 脚本编辑 | CodeMirror 语法高亮（`@` 指令/注释着色）、Ctrl+S 保存、右侧时间轴预览（含素材就绪检查与时长估算） |
+| 构建任务 | 发起 build/tts/assemble/mix、dryrun/MiniMax 切换、试听 limit、强制重合成；分阶段进度条 + SSE 实时日志；任务可取消、自动排队互斥 |
+| 素材库 | music/sfx 上传、时长探测、在线试听、删除 |
+| 声音克隆 | 密钥/voice_id 状态一览、上传样本一键克隆（自动写回 .env）、语速调整 |
+| 产物输出 | 成品试听下载、中间产物查看、按集语音缓存管理（单段删除强制重合成） |
+
+### 技术说明
+
+- 后端 `webapp/`（Flask）直接复用 `src/` 流水线函数；`tts/assemble/mix` 支持可选 `on_event` 回调，进度精确到每段语音 / 每秒混音，CLI 用法完全不受影响
+- 构建任务在后台线程顺序执行（同时仅一个，防中间产物互相覆盖），状态与日志经 SSE（Server-Sent Events）推送到浏览器
+- 仅监听 `127.0.0.1`，本地单人使用，无鉴权；请勿直接暴露到公网
+
 ## 口播稿标注语法
 
 普通文字行 = 朗读内容；`#` 开头 = 注释；指令行以 `@` 开头：
@@ -114,6 +159,7 @@ python -m src.cli build script/episode01.txt --provider dryrun
 | `python -m src.cli mix <script>` | ffmpeg 终混（垫底+闪避+响度归一） |
 | `python -m src.cli build <script> [--limit N]` | 全流程一条命令 |
 | `python -m src.cli clone <sample.wav>` | 上传声音样本，克隆音色 |
+| `python run.py` | 启动 Web Studio（http://127.0.0.1:5000） |
 
 所有命令均支持 `--provider dryrun|minimax`（默认读 `.env` 的 `TTS_PROVIDER`）。
 
@@ -143,6 +189,18 @@ episodeNN.txt ──parse──▶ timeline（结构化时间轴）
 - **两层音频模型**：`insert`（顺序播放）与 `bed`（垫底+闪避）覆盖播客全部配乐场景
 - **双遍响度归一**：第一遍测量整片响度，第二遍 linear 模式精确拉升——比单遍动态模式更通透，无压缩感
 
+Web Studio 在其上叠加一层：`webapp/services/runner.py` 以线程方式调用同一批函数，通过 `on_event` 回调收集进度（TTS 段级 / mix 秒级），经 SSE 推给浏览器；REST API 提供脚本、素材、缓存、克隆管理。
+
+```
+浏览器（Vue 3 SPA，frontend/）
+   │ REST + SSE
+   ▼
+Flask（webapp/）── 后台线程顺序执行、全局互斥
+   │ 直接复用（on_event 回调，CLI 兼容）
+   ▼
+src/ 流水线（parse → tts → assemble → mix）
+```
+
 ## 多集生产
 
 每期只需新建 `script/episode02.txt` 并重复 `build`。语音缓存按集隔离（`audio/segments/{episode}/`），各集互不影响；同集改稿只有文字变化的段落会重新合成。
@@ -167,6 +225,12 @@ git config --global http.https://github.com.proxy http://127.0.0.1:7897
 **Q: 合成到一半断网了**
 直接重跑 `build`——已完成的语音段有缓存，只补齐剩余部分。
 
+**Q: Web 页面打开是 JSON 提示 "frontend not built"**
+首次使用需构建前端：`cd frontend && npm install && npm run build`，然后重启 `python run.py`。
+
+**Q: Web 构建任务点取消没立即停**
+取消在语音段间生效；mix 阶段会先终止 ffmpeg 进程再退出，均在数秒内响应。
+
 ## 项目结构
 
 ```
@@ -178,6 +242,11 @@ podcast-pipeline/
 │   ├── assemble.py  # 主轨组装（语音+停顿+插入音效）
 │   ├── mix.py       # ffmpeg 终混（闪避+限幅+双遍响度归一）
 │   └── cli.py       # 命令行入口
+├── webapp/          # Web Studio 后端（Flask）
+│   ├── api/         # scripts / jobs / assets / voice / outputs 蓝图
+│   └── services/    # runner.py 后台任务执行器（互斥+SSE 事件）
+├── frontend/        # Web Studio 前端（Vue 3 + Vite + Element Plus）
+├── run.py           # Web Studio 一键启动
 ├── audio/
 │   ├── segments/{episode}/   # 语音段缓存（自动管理）
 │   ├── music/ · sfx/         # 素材（手动放入）

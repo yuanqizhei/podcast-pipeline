@@ -42,11 +42,29 @@ def _bed_chain(index: int, bed: dict) -> tuple[str, str]:
     return ",".join(parts) + f"[{label}]", label
 
 
-def _run_ffmpeg(ffmpeg: str, cmd: list[str]) -> subprocess.CompletedProcess:
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed:\n{result.stderr[-2000:]}")
-    return result
+def _run_ffmpeg(ffmpeg: str, cmd: list[str], on_line=None) -> subprocess.CompletedProcess:
+    if on_line is None:
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed:\n{result.stderr[-2000:]}")
+        return result
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    stderr_tail: list[str] = []
+    try:
+        assert proc.stderr is not None
+        for line in proc.stderr:
+            stderr_tail.append(line)
+            if len(stderr_tail) > 80:
+                stderr_tail.pop(0)
+            on_line(line)
+        proc.wait()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed:\n{''.join(stderr_tail)[-2000:]}")
+    return subprocess.CompletedProcess(cmd, proc.returncode, "", "".join(stderr_tail))
 
 
 def _measure_loudnorm(ffmpeg: str, base_cmd: list[str], pre_filter: str) -> dict | None:
@@ -74,15 +92,22 @@ def _measure_loudnorm(ffmpeg: str, base_cmd: list[str], pre_filter: str) -> dict
     return measured
 
 
-def mix(voice_path: Path, beds_path: Path, output_path: Path) -> Path:
+def mix(voice_path: Path, beds_path: Path, output_path: Path, on_event=None) -> Path:
+    def emit(event: dict) -> None:
+        if on_event:
+            on_event(event)
+
     ffmpeg = check_ffmpeg()
+    emit({"stage": "mix", "kind": "start"})
     info = json.loads(beds_path.read_text(encoding="utf-8"))
     all_beds = info["beds"]
     total_s = info["total_ms"] / 1000
     beds = [b for b in all_beds if Path(b["file"]).exists()]
     for b in all_beds:
         if b not in beds:
-            print(f"[warn] bed asset missing, skipped: {b['file']}")
+            msg = f"[warn] bed asset missing, skipped: {b['file']}"
+            print(msg)
+            emit({"stage": "mix", "kind": "log", "message": msg})
 
     base_cmd = [ffmpeg, "-y", "-i", str(voice_path)]
     for bed in beds:
@@ -115,14 +140,17 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path) -> Path:
     pre_filter = ";".join(chains)
 
     print("[ffmpeg pass 1] measuring loudness ...")
+    emit({"stage": "mix", "kind": "log", "message": "[ffmpeg pass 1] measuring loudness ..."})
     measured = _measure_loudnorm(ffmpeg, base_cmd, pre_filter)
     if measured:
         params = ":".join(f"{k}={v}" for k, v in measured.items())
         loudnorm = f"loudnorm={LOUDNORM_TARGET}:{params}:linear=true"
-        print(f"[ffmpeg pass 2] linear loudnorm ({measured['measured_I']} LUFS measured)")
+        msg = f"[ffmpeg pass 2] linear loudnorm ({measured['measured_I']} LUFS measured)"
     else:
         loudnorm = f"loudnorm={LOUDNORM_TARGET}"
-        print("[ffmpeg pass 2] dynamic loudnorm (measurement unavailable, e.g. silent input)")
+        msg = "[ffmpeg pass 2] dynamic loudnorm (measurement unavailable, e.g. silent input)"
+    print(msg)
+    emit({"stage": "mix", "kind": "log", "message": msg})
 
     cmd = base_cmd + [
         "-filter_complex", f"{pre_filter};[mixout]{loudnorm}[out]",
@@ -133,9 +161,27 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path) -> Path:
         str(output_path),
     ]
 
+    time_re = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
+
+    def on_ffmpeg_line(line: str) -> None:
+        m = time_re.search(line)
+        if m:
+            t = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+            emit(
+                {
+                    "stage": "mix",
+                    "kind": "progress",
+                    "current": round(t, 3),
+                    "total": round(total_s, 3),
+                    "percent": min(t / total_s, 1.0) if total_s > 0 else 1.0,
+                }
+            )
+
     print("[ffmpeg]", " ".join(cmd))
-    _run_ffmpeg(ffmpeg, cmd)
+    emit({"stage": "mix", "kind": "log", "message": "[ffmpeg] " + " ".join(cmd)})
+    _run_ffmpeg(ffmpeg, cmd, on_line=on_ffmpeg_line)
 
     done = AudioSegment.from_file(output_path)
     print(f"final mix: {output_path} ({len(done) / 1000:.1f}s)")
+    emit({"stage": "mix", "kind": "done", "output": str(output_path), "duration_ms": len(done)})
     return output_path
