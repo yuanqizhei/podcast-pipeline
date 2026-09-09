@@ -5,6 +5,8 @@ from pathlib import Path
 
 from pydub import AudioSegment
 
+from .parser import resolve_audio
+
 SAMPLE_RATE = 32000
 
 
@@ -20,7 +22,7 @@ def _load(path: Path, gain_db: float, fade_in: float, fade_out: float) -> AudioS
     return seg
 
 
-def assemble(timeline, segments_dir: Path, output_dir: Path) -> tuple[Path, Path]:
+def assemble(timeline, segments_dir: Path, output_dir: Path, audio_root: Path) -> tuple[Path, Path]:
     voice_path = output_dir / "voice_track.wav"
     beds_path = output_dir / "beds.json"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -41,7 +43,7 @@ def assemble(timeline, segments_dir: Path, output_dir: Path) -> tuple[Path, Path
             main += AudioSegment.silent(duration=int(item.seconds * 1000), frame_rate=SAMPLE_RATE).set_sample_width(2).set_channels(1)
         elif item.type == "insert":
             try:
-                main += _load(Path(item.file), item.gain_db, item.fade_in, item.fade_out)
+                main += _load(resolve_audio(item.file, audio_root), item.gain_db, item.fade_in, item.fade_out)
             except FileNotFoundError as e:
                 missing.append(str(e))
         elif item.type == "bed":

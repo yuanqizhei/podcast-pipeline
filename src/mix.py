@@ -7,6 +7,8 @@ from pathlib import Path
 
 from pydub import AudioSegment
 
+from .parser import resolve_audio
+
 
 def check_ffmpeg() -> str:
     ffmpeg = shutil.which("ffmpeg")
@@ -36,23 +38,26 @@ def _bed_chain(index: int, bed: dict) -> tuple[str, str]:
     return ",".join(parts) + f"[{label}]", label
 
 
-def mix(voice_path: Path, beds_path: Path, output_path: Path) -> Path:
+def mix(voice_path: Path, beds_path: Path, output_path: Path, audio_root: Path) -> Path:
     ffmpeg = check_ffmpeg()
     info = json.loads(beds_path.read_text(encoding="utf-8"))
     all_beds = info["beds"]
     total_s = info["total_ms"] / 1000
-    beds = [b for b in all_beds if Path(b["file"]).exists()]
+    beds = []
     for b in all_beds:
-        if b not in beds:
+        path = resolve_audio(b["file"], audio_root)
+        if path.exists():
+            beds.append((b, path))
+        else:
             print(f"[warn] bed asset missing, skipped: {b['file']}")
 
     cmd = [ffmpeg, "-y", "-i", str(voice_path)]
-    for bed in beds:
-        cmd += ["-stream_loop", "-1", "-i", str(bed["file"])]
+    for bed, path in beds:
+        cmd += ["-stream_loop", "-1", "-i", str(path)]
 
     chains: list[str] = []
     labels: list[str] = []
-    for i, bed in enumerate(beds, start=1):
+    for i, (bed, path) in enumerate(beds, start=1):
         chain, label = _bed_chain(i, bed)
         chains.append(chain)
         labels.append(label)
@@ -63,7 +68,7 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path) -> Path:
             chains.append("".join(f"[{l}]" for l in labels) + f"amix=inputs={len(labels)}:duration=longest,volume={len(labels)}[bg]")
             bg = "[bg]"
         else:
-            bg = f"[{labels[0]}"
+            bg = f"[{labels[0]}]"
         chains.append(
             f"{bg}[0:a]sidechaincompress=threshold=0.03:ratio=8:attack=50:release=600[ducked]"
         )

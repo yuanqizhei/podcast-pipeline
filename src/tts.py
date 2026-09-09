@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -11,10 +11,13 @@ import requests
 from dotenv import load_dotenv
 from pydub import AudioSegment
 
+from .parser import text_hash
+
 load_dotenv()
 
 MINIMAX_BASE = "https://api.minimax.chat/v1"
 MAX_CHARS_PER_REQUEST = 350
+LEGACY_ID_RE = re.compile(r"^s\d{1,5}$")  # old positional speech ids (s001..)
 
 
 class TTSProvider:
@@ -138,13 +141,37 @@ class MiniMaxProvider(TTSProvider):
         merged.export(out_path, format="mp3")
 
 
-def text_hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+def _migrate_legacy_cache(items, segments_dir: Path, meta: dict, meta_path: Path) -> None:
+    """Old positional ids (s001..) shift whenever the script is edited; content
+    ids don't. Rename cached files from positional to content ids so already
+    paid-for audio survives script restructuring."""
+    by_hash = {v: k for k, v in meta.items() if LEGACY_ID_RE.match(k)}
+    if not by_hash:
+        return
+    moved = 0
+    for item in items:
+        if item.type != "speech":
+            continue
+        new_path = segments_dir / f"{item.id}.mp3"
+        h = text_hash(item.text)
+        if new_path.exists() or h not in by_hash:
+            continue
+        old_path = segments_dir / f"{by_hash[h]}.mp3"
+        if old_path.exists():
+            old_path.rename(new_path)
+            moved += 1
+        meta[item.id] = h
+    for old_id in by_hash.values():
+        meta.pop(old_id, None)
+    if moved:
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[tts] migrated {moved} cached segment(s) to content-based ids")
 
 
 def synthesize_timeline(items, segments_dir: Path, provider: TTSProvider, force: bool = False) -> list[Path]:
     meta_path = segments_dir / "meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    _migrate_legacy_cache(items, segments_dir, meta, meta_path)
     produced: list[Path] = []
     for item in items:
         if item.type != "speech":

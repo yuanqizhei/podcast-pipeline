@@ -1,0 +1,7 @@
+.env
+.venv/
+__pycache__/
+audio/segments/
+audio/output/voice_track.wav
+audio/output/beds.json
+audio/output/*_final.mp3
