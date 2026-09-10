@@ -6,7 +6,7 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from src.parser import parse
+from src.parser import parse, resolve_audio
 
 from ..services.runner import AUDIO, OUTPUT, SCRIPTS, SEGMENTS
 
@@ -23,15 +23,15 @@ def _script_path(name: str) -> Path:
 
 
 def _timeline_dict(script_path: Path) -> dict:
-    tl = parse(script_path, AUDIO)
+    tl = parse(script_path)
     items = []
     missing = []
     for item in tl.items:
         d = asdict(item)
         if item.type in ("insert", "bed"):
-            exists = Path(item.file).exists()
+            exists = resolve_audio(item.file, AUDIO).exists()
             d["exists"] = exists
-            d["file"] = str(Path(item.file).relative_to(AUDIO)).replace("\\", "/")
+            d["file"] = item.file
             if not exists:
                 missing.append(d["file"])
         items.append(d)

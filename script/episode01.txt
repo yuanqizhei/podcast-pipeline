@@ -1,6 +1,6 @@
 # 《终点线一直在挪》EP01 口播稿（标注版）
 # 语法：@pause 秒数 | @insert 文件 gain=dB fade_in=秒 fade_out=秒 | @bed 文件 ... | @bed_stop
-# 音频文件放在 audio/ 对应目录，缺失的会被自动跳过并警告
+# 音频文件放在 audio/ 对应目录（timeline 里存相对 audio/ 的路径，跨平台通用），缺失的会被自动跳过并警告
 
 #%% 冷开场
 

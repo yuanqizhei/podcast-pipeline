@@ -1,6 +1,10 @@
 .env
-audio/
+.venv/
 __pycache__/
 *.pyc
+audio/segments/
+audio/output/voice_track.wav
+audio/output/beds.json
+audio/output/*_final.mp3
 frontend/node_modules/
 frontend/dist/

@@ -9,6 +9,8 @@ from pathlib import Path
 
 from pydub import AudioSegment
 
+from .parser import resolve_audio
+
 LOUDNORM_TARGET = "I=-16:TP=-1.5:LRA=11"
 
 
@@ -92,7 +94,7 @@ def _measure_loudnorm(ffmpeg: str, base_cmd: list[str], pre_filter: str) -> dict
     return measured
 
 
-def mix(voice_path: Path, beds_path: Path, output_path: Path, on_event=None) -> Path:
+def mix(voice_path: Path, beds_path: Path, output_path: Path, audio_root: Path, on_event=None) -> Path:
     def emit(event: dict) -> None:
         if on_event:
             on_event(event)
@@ -102,20 +104,23 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path, on_event=None) -> 
     info = json.loads(beds_path.read_text(encoding="utf-8"))
     all_beds = info["beds"]
     total_s = info["total_ms"] / 1000
-    beds = [b for b in all_beds if Path(b["file"]).exists()]
+    beds = []
     for b in all_beds:
-        if b not in beds:
+        path = resolve_audio(b["file"], audio_root)
+        if path.exists():
+            beds.append((b, path))
+        else:
             msg = f"[warn] bed asset missing, skipped: {b['file']}"
             print(msg)
             emit({"stage": "mix", "kind": "log", "message": msg})
 
     base_cmd = [ffmpeg, "-y", "-i", str(voice_path)]
-    for bed in beds:
-        base_cmd += ["-stream_loop", "-1", "-i", str(bed["file"])]
+    for bed, path in beds:
+        base_cmd += ["-stream_loop", "-1", "-i", str(path)]
 
     chains: list[str] = []
     labels: list[str] = []
-    for i, bed in enumerate(beds, start=1):
+    for i, (bed, path) in enumerate(beds, start=1):
         chain, label = _bed_chain(i, bed)
         chains.append(chain)
         labels.append(label)

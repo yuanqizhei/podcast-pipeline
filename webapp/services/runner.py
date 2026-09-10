@@ -203,7 +203,7 @@ class JobManager:
             if not script_path.exists():
                 raise RuntimeError(f"script not found: {script_path.name}")
 
-            tl = parse(script_path, AUDIO)
+            tl = parse(script_path)
             write_timeline(tl, OUTPUT / f"{tl.episode}_timeline.json")
             if job.limit:
                 tl.items = _limit_items(tl.items, job.limit)
@@ -234,7 +234,7 @@ class JobManager:
             if job.command in ("assemble", "build"):
                 if job.cancel_event.is_set():
                     raise JobCancelled()
-                voice, beds = assemble(tl, SEGMENTS, OUTPUT, on_event=on_event)
+                voice, beds = assemble(tl, SEGMENTS, OUTPUT, AUDIO, on_event=on_event)
             if job.command in ("mix", "build"):
                 if job.cancel_event.is_set():
                     raise JobCancelled()
@@ -250,7 +250,7 @@ class JobManager:
                             f"intermediate tracks were built for '{built_for}', not '{job.script}'; run assemble/build for this episode first"
                         )
                 out_path = OUTPUT / f"{job.script}_final.mp3"
-                mix(voice, beds, out_path, on_event=on_event)
+                mix(voice, beds, out_path, AUDIO, on_event=on_event)
             job.status = "done"
             self._emit(job, {"kind": "log", "message": f"job {job.command} done: {job.script}"})
         except JobCancelled:

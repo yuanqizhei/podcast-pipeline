@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from .assemble import assemble
 from .mix import mix
-from .parser import parse, write_timeline
+from .parser import parse, write_timeline, load_timeline, hash_script
 from .tts import get_provider, synthesize_timeline, MiniMaxProvider
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,7 +26,7 @@ def timeline_path(script: Path) -> Path:
 
 
 def cmd_parse(args):
-    tl = parse(args.script.resolve(), AUDIO)
+    tl = parse(args.script.resolve())
     out = timeline_path(args.script)
     write_timeline(tl, out)
     speech = sum(1 for i in tl.items if i.type == "speech")
@@ -35,8 +35,16 @@ def cmd_parse(args):
 
 
 def _load_tl(script: Path):
-    tl = parse(script.resolve(), AUDIO)
-    write_timeline(tl, timeline_path(script))
+    tp = timeline_path(script)
+    if tp.exists():
+        tl = load_timeline(tp)
+        # stale cache (script edited since last parse, or old timeline without
+        # a hash) would silently drop script changes -> re-parse on mismatch
+        if tl.script_hash and tl.script_hash == hash_script(script.resolve()):
+            return tl
+        print(f"[parse] script changed since last parse, refreshing {tp.name}")
+    tl = parse(script.resolve())
+    write_timeline(tl, tp)
     return tl
 
 
@@ -85,7 +93,7 @@ def cmd_tts(args):
 
 def cmd_assemble(args):
     tl = _load_tl(args.script)
-    assemble(tl, SEGMENTS, OUTPUT)
+    assemble(tl, SEGMENTS, OUTPUT, AUDIO)
 
 
 def cmd_mix(args):
@@ -102,7 +110,7 @@ def cmd_mix(args):
             f"intermediate tracks were built for '{built_for}', not '{args.script.stem}'; run assemble/build for this episode first"
         )
     out = OUTPUT / f"{args.script.stem}_final.mp3"
-    mix(voice, beds, out)
+    mix(voice, beds, out, AUDIO)
 
 
 def cmd_build(args):
@@ -113,9 +121,9 @@ def cmd_build(args):
         tl.items = _limit_items(tl.items, args.limit)
         print(f"[preview] limited to first {args.limit} speech blocks")
     synthesize_timeline(tl, SEGMENTS, get_provider(provider), force=args.force)
-    voice, beds = assemble(tl, SEGMENTS, OUTPUT)
+    voice, beds = assemble(tl, SEGMENTS, OUTPUT, AUDIO)
     out = OUTPUT / f"{args.script.stem}_final.mp3"
-    mix(voice, beds, out)
+    mix(voice, beds, out, AUDIO)
 
 
 def cmd_clone(args):
