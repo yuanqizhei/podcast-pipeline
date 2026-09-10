@@ -23,7 +23,7 @@ def _reload_env() -> None:
 def _env_status() -> dict:
     return {
         "provider_default": os.environ.get("TTS_PROVIDER", "dryrun"),
-        "model": os.environ.get("MINIMAX_MODEL", "speech-01-turbo"),
+        "model": os.environ.get("MINIMAX_MODEL", "speech-2.8-turbo"),
         "speed": os.environ.get("TTS_SPEED", "0.95"),
         "api_key_set": bool(os.environ.get("MINIMAX_API_KEY")),
         "group_id_set": bool(os.environ.get("MINIMAX_GROUP_ID")),

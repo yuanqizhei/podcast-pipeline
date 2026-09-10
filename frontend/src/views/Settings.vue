@@ -24,7 +24,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="模型">
-          <el-input v-model="form.MINIMAX_MODEL" :placeholder="status.MINIMAX_MODEL || '默认 speech-01-turbo'" style="width: 280px" />
+          <el-input v-model="form.MINIMAX_MODEL" :placeholder="status.MINIMAX_MODEL || '默认 speech-2.8-turbo'" style="width: 280px" />
           <el-button v-if="status.MINIMAX_MODEL" size="small" text style="margin-left: 6px" @click="resetKey('MINIMAX_MODEL')">
             恢复默认
           </el-button>
@@ -102,7 +102,7 @@ const form = reactive({
   MINIMAX_API_KEY: "",
   MINIMAX_GROUP_ID: "",
   TTS_PROVIDER: "dryrun",
-  MINIMAX_MODEL: "speech-01-turbo",
+  MINIMAX_MODEL: "speech-2.8-turbo",
   TTS_SPEED: 0.95,
   PODCAST_NAME: "",
   PODCAST_ARTIST: "",

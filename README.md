@@ -172,7 +172,7 @@ cd frontend && npm run dev        # 终端 2：Vite :5173（/api、/audio 自动
 | 键 | 说明 | 默认 |
 |----|------|------|
 | `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID` | MiniMax 平台密钥（必填，真实合成时） | - |
-| `MINIMAX_MODEL` | 合成模型 | `speech-01-turbo` |
+| `MINIMAX_MODEL` | 合成模型 | `speech-2.8-turbo` |
 | `MINIMAX_VOICE_ID` | 克隆音色 ID（clone 后自动写入，也可在网页手动管理） | - |
 | `TTS_PROVIDER` | 默认引擎 `minimax` / `dryrun` | `dryrun` |
 | `TTS_SPEED` | 语速 0.5 ~ 2.0 | `0.95` |

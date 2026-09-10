@@ -63,7 +63,7 @@ class MiniMaxProvider(TTSProvider):
         self.api_key = os.environ.get("MINIMAX_API_KEY", "")
         self.group_id = os.environ.get("MINIMAX_GROUP_ID", "")
         self.voice_id = os.environ.get("MINIMAX_VOICE_ID", "")
-        self.model = os.environ.get("MINIMAX_MODEL", "speech-01-turbo")
+        self.model = os.environ.get("MINIMAX_MODEL", "speech-2.8-turbo")
         self.speed = float(os.environ.get("TTS_SPEED", "0.95"))
         if not self.api_key or not self.group_id:
             raise RuntimeError("MINIMAX_API_KEY / MINIMAX_GROUP_ID not set in .env")
