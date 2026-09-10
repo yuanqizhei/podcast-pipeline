@@ -75,6 +75,11 @@ def clone_voice():
     finally:
         tmp.unlink(missing_ok=True)
 
+    import re as _re
+
+    if not _re.fullmatch(r"[\w\-]+", voice_id):
+        return jsonify({"error": f"clone returned invalid voice_id: {voice_id!r}"}), 502
+
     update_env({"MINIMAX_VOICE_ID": voice_id})
     return jsonify({"voice_id": voice_id, "saved": True})
 

@@ -126,6 +126,10 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path, audio_root: Path, 
     info = json.loads(beds_path.read_text(encoding="utf-8"))
     all_beds = info["beds"]
     total_s = info["total_ms"] / 1000
+    if total_s <= 0:
+        raise RuntimeError(
+            "voice track is empty (0s): the script has no synthesized speech segments -- run tts first or add speech lines"
+        )
     beds = []
     for b in all_beds:
         path = resolve_audio(b["file"], audio_root)
@@ -210,9 +214,14 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path, audio_root: Path, 
     emit({"stage": "mix", "kind": "log", "message": "[ffmpeg] " + " ".join(cmd)})
     _run_ffmpeg(ffmpeg, cmd, on_line=on_ffmpeg_line)
 
-    done = AudioSegment.from_file(output_path)
-    print(f"final mix: {output_path} ({len(done) / 1000:.1f}s)")
-    emit({"stage": "mix", "kind": "done", "output": str(output_path), "duration_ms": len(done)})
+    try:
+        done = AudioSegment.from_file(output_path)
+        dur_s = len(done) / 1000
+        emit({"stage": "mix", "kind": "done", "output": str(output_path), "duration_ms": len(done)})
+    except Exception:  # noqa: BLE001 - duration probe is best-effort, file is already written
+        dur_s = total_s
+        emit({"stage": "mix", "kind": "done", "output": str(output_path), "duration_ms": int(total_s * 1000)})
+    print(f"final mix: {output_path} ({dur_s:.1f}s)")
 
     # loudness verification of the finished file (quality closed-loop)
     report = _measure_loudnorm(ffmpeg, [ffmpeg, "-i", str(output_path)], "[0:a]anull[mixout]")

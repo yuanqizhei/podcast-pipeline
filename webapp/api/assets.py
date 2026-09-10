@@ -12,6 +12,7 @@ bp = Blueprint("assets", __name__, url_prefix="/api/assets")
 AUDIO_KINDS = ("music", "sfx")
 EXT_OK = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma"}
 SAFE_NAME_RE = re.compile(r"^[\w\-.\u4e00-\u9fff ]+$")
+WIN_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 
 
 def _duration_of(path: Path) -> float | None:
@@ -66,6 +67,8 @@ def upload_asset(kind: str):
     name = Path(f.filename).name
     if not SAFE_NAME_RE.match(name):
         return jsonify({"error": f"unsafe filename: {name}"}), 400
+    if Path(name).stem.upper() in WIN_RESERVED:
+        return jsonify({"error": f"reserved device name on Windows: {name}"}), 400
     if Path(name).suffix.lower() not in EXT_OK:
         return jsonify({"error": f"unsupported audio type, allowed: {sorted(EXT_OK)}"}), 400
     dest = d / name
@@ -80,6 +83,9 @@ def delete_asset(kind: str, name: str):
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     p = d / name
+    # path-traversal guard: the resolved target must stay inside the asset dir
+    if p.resolve().parent != d.resolve():
+        return jsonify({"error": "forbidden path"}), 400
     if not p.is_file():
         return jsonify({"error": f"asset not found: {name}"}), 404
     p.unlink()

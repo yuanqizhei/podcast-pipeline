@@ -132,11 +132,22 @@ async function load() {
   }
 }
 
+const DEFAULTS = {
+  MINIMAX_MODEL: "",
+  TTS_SPEED: 0.95,
+  PODCAST_NAME: "",
+  PODCAST_ARTIST: "",
+  LOUDNORM_I: -16,
+  LOUDNORM_TP: -1.5,
+  LOUDNORM_LRA: 11,
+}
+
 async function resetKey(key) {
   try {
     await api.saveSettings({ [key]: null })
+    status.value = await api.getSettings()
+    if (key in DEFAULTS) form[key] = DEFAULTS[key]
     ElMessage.success(`${key} 已恢复默认`)
-    load()
   } catch (e) {
     ElMessage.error(api.errMsg(e))
   }
