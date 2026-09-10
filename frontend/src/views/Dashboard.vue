@@ -6,7 +6,7 @@
     </div>
 
     <el-alert v-if="envErrors.length" type="warning" show-icon :closable="false" style="margin-bottom: 16px"
-      :title="'MiniMax 尚未配置：' + envErrors.join('；') + '（可先使用 dryrun 模式）'" />
+      :title="'MiniMax 真实合成还差：' + envErrors.join('；') + '（dryrun 模式不受影响）'" />
 
     <el-row :gutter="16">
       <el-col v-for="s in scripts" :key="s.name" :xs="24" :sm="12" :md="8" :lg="6" style="margin-bottom: 16px">
@@ -112,12 +112,18 @@ function estMinutes(chars) {
   return Math.round(chars / 4.5 / 60)
 }
 
+function fmtEnvError(e) {
+  if (e.includes("API_KEY") || e.includes("GROUP_ID")) return "密钥未配置（去 系统设置 填写）"
+  if (e.includes("VOICE_ID")) return "尚未克隆声音（去 声音克隆 录制，1~2 分钟样本）"
+  return e
+}
+
 async function load() {
   loading.value = true
   try {
     scripts.value = await api.listScripts()
     const env = await api.envInfo()
-    envErrors.value = env.minimax_preflight_errors
+    envErrors.value = (env.minimax_preflight_errors || []).map(fmtEnvError)
   } catch (e) {
     ElMessage.error(api.errMsg(e))
   } finally {
