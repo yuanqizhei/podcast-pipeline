@@ -7,6 +7,7 @@ const routes = [
   { path: "/assets", name: "assets", component: () => import("./views/Assets.vue") },
   { path: "/voice", name: "voice", component: () => import("./views/VoiceClone.vue") },
   { path: "/outputs", name: "outputs", component: () => import("./views/Outputs.vue") },
+  { path: "/settings", name: "settings", component: () => import("./views/Settings.vue") },
 ]
 
 export default createRouter({

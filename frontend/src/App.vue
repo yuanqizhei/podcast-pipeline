@@ -24,6 +24,9 @@
         <el-menu-item index="/outputs">
           <el-icon><Headset /></el-icon>产物输出
         </el-menu-item>
+        <el-menu-item index="/settings">
+          <el-icon><Setting /></el-icon>系统设置
+        </el-menu-item>
       </el-menu>
       <div class="aside-footer mono">podcast-pipeline</div>
     </el-aside>

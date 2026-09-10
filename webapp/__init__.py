@@ -17,6 +17,7 @@ from .api.assets import audio_bp, bp as assets_bp
 from .api.jobs import bp as jobs_bp
 from .api.outputs import bp as outputs_bp
 from .api.scripts import bp as scripts_bp
+from .api.settings import bp as settings_bp
 from .api.voice import bp as voice_bp
 
 DIST = ROOT / "frontend" / "dist"
@@ -30,8 +31,17 @@ def create_app() -> Flask:
     app.register_blueprint(jobs_bp)
     app.register_blueprint(assets_bp)
     app.register_blueprint(voice_bp)
+    app.register_blueprint(settings_bp)
     app.register_blueprint(outputs_bp)
     app.register_blueprint(audio_bp)
+
+    @app.errorhandler(400)
+    def bad_request(e):
+        from flask import request
+
+        if request.path.startswith(("/api/", "/audio/")):
+            return jsonify({"error": e.description or "bad request"}), 400
+        return e
 
     @app.errorhandler(404)
     def not_found(e):

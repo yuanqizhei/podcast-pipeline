@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
+data/
 audio/segments/
 audio/output/voice_track.wav
 audio/output/beds.json

@@ -69,6 +69,15 @@
           <el-option v-for="n in episodeNames" :key="n" :label="n" :value="n" />
         </el-select>
         <el-button v-if="segs.length" type="danger" plain :icon="Delete" @click="clearAll">清空该集缓存</el-button>
+        <el-popconfirm
+          v-if="segs.length"
+          title="清理孤儿缓存？删除当前脚本已不再引用的旧段落（改稿残留）"
+          @confirm="prune"
+        >
+          <template #reference>
+            <el-button plain :icon="Brush">清理孤儿缓存</el-button>
+          </template>
+        </el-popconfirm>
         <span class="hint">改稿后仅需重合成变化段落；删除单段可强制下次重新合成该段。</span>
       </div>
       <el-table :data="segs" size="small" max-height="360">
@@ -84,11 +93,21 @@
         <el-table-column label="时间" width="170">
           <template #default="{ row }">{{ new Date(row.mtime * 1000).toLocaleString("zh-CN", { hour12: false }) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180">
+        <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <el-button size="small" :icon="VideoPlay" @click="playing = { name: `segments/${segEpisode}/${row.id}.mp3` }">
               试听
             </el-button>
+            <el-popconfirm
+              :title="`重合成 ${row.id}？将删除该段缓存并自动提交 tts 任务（其余段落走缓存）`"
+              @confirm="resynthesize(row)"
+            >
+              <template #reference>
+                <el-button size="small" type="primary" :icon="RefreshRight" plain :loading="resyn === row.id">
+                  重合成
+                </el-button>
+              </template>
+            </el-popconfirm>
             <el-popconfirm :title="`删除 ${row.id}？下次构建将重新合成`" @confirm="removeSeg(row)">
               <template #reference>
                 <el-button size="small" type="danger" :icon="Delete" plain />
@@ -108,7 +127,7 @@
 <script setup>
 import { onMounted, ref } from "vue"
 import { ElMessage } from "element-plus"
-import { Delete, Download, Refresh, VideoPlay, View } from "@element-plus/icons-vue"
+import { Brush, Delete, Download, Refresh, RefreshRight, VideoPlay, View } from "@element-plus/icons-vue"
 import api from "../api"
 
 const finals = ref([])
@@ -117,6 +136,7 @@ const episodeNames = ref([])
 const segEpisode = ref("")
 const segs = ref([])
 const playing = ref(null)
+const resyn = ref("")
 
 function fmtSize(n) {
   if (n > 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB"
@@ -157,6 +177,16 @@ async function clearAll() {
   }
 }
 
+async function prune() {
+  try {
+    const res = await api.pruneSegments(segEpisode.value)
+    ElMessage.success(res.removed ? `已清理 ${res.removed} 个孤儿缓存段` : "没有孤儿缓存")
+    loadSegs()
+  } catch (e) {
+    ElMessage.error(api.errMsg(e))
+  }
+}
+
 async function removeSeg(row) {
   try {
     await api.deleteSegment(segEpisode.value, row.id)
@@ -164,6 +194,21 @@ async function removeSeg(row) {
     loadSegs()
   } catch (e) {
     ElMessage.error(api.errMsg(e))
+  }
+}
+
+async function resynthesize(row) {
+  resyn.value = row.id
+  try {
+    await api.deleteSegment(segEpisode.value, row.id)
+    const job = await api.createJob({ script: segEpisode.value, command: "tts" })
+    ElMessage.success(`已提交重合成任务（${job.job.id}），可在"构建任务"页查看进度`)
+    loadSegs()
+  } catch (e) {
+    ElMessage.error(api.errMsg(e))
+    loadSegs()
+  } finally {
+    resyn.value = ""
   }
 }
 

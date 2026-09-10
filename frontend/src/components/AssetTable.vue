@@ -21,9 +21,11 @@
       <el-table-column label="修改时间" width="170">
         <template #default="{ row }">{{ new Date(row.mtime * 1000).toLocaleString("zh-CN", { hour12: false }) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="200">
+      <el-table-column label="操作" width="280">
         <template #default="{ row }">
           <el-button size="small" :icon="VideoPlay" @click="play(row)">试听</el-button>
+          <el-button size="small" :icon="CopyDocument" title="复制脚本引用路径"
+            @click="copyRef(row)">@引用</el-button>
           <el-popconfirm :title="`删除 ${row.name}？`" @confirm="remove(row)">
             <template #reference>
               <el-button size="small" type="danger" :icon="Delete" plain>删除</el-button>
@@ -43,7 +45,7 @@
 <script setup>
 import { ref } from "vue"
 import { ElMessage } from "element-plus"
-import { Delete, Refresh, Upload, VideoPlay } from "@element-plus/icons-vue"
+import { Delete, CopyDocument, Refresh, Upload, VideoPlay } from "@element-plus/icons-vue"
 import api from "../api"
 
 const props = defineProps({ kind: { type: String, required: true } })
@@ -71,6 +73,16 @@ async function load() {
 
 function play(row) {
   playing.value = { name: row.name, url: `/audio/${props.kind}/${encodeURIComponent(row.name)}` }
+}
+
+async function copyRef(row) {
+  const ref = `${props.kind}/${row.name}`
+  try {
+    await navigator.clipboard.writeText(ref)
+    ElMessage.success(`已复制：${ref}`)
+  } catch {
+    ElMessage.info(ref)
+  }
 }
 
 async function remove(row) {

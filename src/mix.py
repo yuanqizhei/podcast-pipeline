@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -11,7 +12,28 @@ from pydub import AudioSegment
 
 from .parser import resolve_audio
 
-LOUDNORM_TARGET = "I=-16:TP=-1.5:LRA=11"
+
+def loudnorm_target() -> str:
+    """Loudness target, overridable via env (LOUDNORM_I/TP/LRA) so the web UI
+    can tune it without code changes."""
+    i = os.environ.get("LOUDNORM_I", "-16")
+    tp = os.environ.get("LOUDNORM_TP", "-1.5")
+    lra = os.environ.get("LOUDNORM_LRA", "11")
+    return f"I={i}:TP={tp}:LRA={lra}"
+
+
+def _id3_args(episode: str) -> list[str]:
+    """ID3 tags for the final mp3: title = episode name, artist/album from
+    env (PODCAST_ARTIST / PODCAST_NAME) when set."""
+    args = ["-metadata", f"title={episode}"]
+    artist = os.environ.get("PODCAST_ARTIST", "").strip()
+    album = os.environ.get("PODCAST_NAME", "").strip()
+    if artist:
+        args += ["-metadata", f"artist={artist}"]
+    if album:
+        args += ["-metadata", f"album={album}"]
+        args += ["-metadata", f"album_artist={artist or album}"]
+    return args
 
 
 def check_ffmpeg() -> str:
@@ -71,7 +93,7 @@ def _run_ffmpeg(ffmpeg: str, cmd: list[str], on_line=None) -> subprocess.Complet
 
 def _measure_loudnorm(ffmpeg: str, base_cmd: list[str], pre_filter: str) -> dict | None:
     probe = base_cmd + [
-        "-filter_complex", f"{pre_filter};[mixout]loudnorm={LOUDNORM_TARGET}:print_format=json[out]",
+        "-filter_complex", f"{pre_filter};[mixout]loudnorm={loudnorm_target()}:print_format=json[out]",
         "-map", "[out]", "-f", "null", "-",
     ]
     result = _run_ffmpeg(ffmpeg, probe)
@@ -144,15 +166,16 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path, audio_root: Path, 
         chains.append(f"{final_mix}alimiter=limit=0.95[mixout]")
     pre_filter = ";".join(chains)
 
+    target = loudnorm_target()
     print("[ffmpeg pass 1] measuring loudness ...")
     emit({"stage": "mix", "kind": "log", "message": "[ffmpeg pass 1] measuring loudness ..."})
     measured = _measure_loudnorm(ffmpeg, base_cmd, pre_filter)
     if measured:
         params = ":".join(f"{k}={v}" for k, v in measured.items())
-        loudnorm = f"loudnorm={LOUDNORM_TARGET}:{params}:linear=true"
+        loudnorm = f"loudnorm={target}:{params}:linear=true"
         msg = f"[ffmpeg pass 2] linear loudnorm ({measured['measured_I']} LUFS measured)"
     else:
-        loudnorm = f"loudnorm={LOUDNORM_TARGET}"
+        loudnorm = f"loudnorm={target}"
         msg = "[ffmpeg pass 2] dynamic loudnorm (measurement unavailable, e.g. silent input)"
     print(msg)
     emit({"stage": "mix", "kind": "log", "message": msg})
@@ -163,6 +186,7 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path, audio_root: Path, 
         "-t", f"{total_s:.3f}",
         "-ar", "44100",
         "-b:a", "128k",
+        *_id3_args(output_path.stem.removesuffix("_final")),
         str(output_path),
     ]
 
@@ -189,4 +213,19 @@ def mix(voice_path: Path, beds_path: Path, output_path: Path, audio_root: Path, 
     done = AudioSegment.from_file(output_path)
     print(f"final mix: {output_path} ({len(done) / 1000:.1f}s)")
     emit({"stage": "mix", "kind": "done", "output": str(output_path), "duration_ms": len(done)})
+
+    # loudness verification of the finished file (quality closed-loop)
+    report = _measure_loudnorm(ffmpeg, [ffmpeg, "-i", str(output_path)], "[0:a]anull[mixout]")
+    if report:
+        target_i = float(loudnorm_target().split("I=")[1].split(":")[0])
+        diff = float(report["measured_I"]) - target_i
+        verdict = "OK" if abs(diff) <= 1.0 else f"偏离目标 {diff:+.1f} LU"
+        msg = (
+            f"[loudness] 成品实测 I={report['measured_I']} LUFS, TP={report['measured_TP']} dBTP "
+            f"(目标 I={target_i}) -> {verdict}"
+        )
+    else:
+        msg = "[loudness] 成品响度测量失败（可忽略，不影响输出）"
+    print(msg)
+    emit({"stage": "mix", "kind": "log", "message": msg})
     return output_path

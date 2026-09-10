@@ -16,6 +16,7 @@ export const api = {
   deleteScript: (name, withSegments) =>
     http.delete(`/scripts/${name}${withSegments ? "?with_segments=1" : ""}`).then((r) => r.data),
   parseScript: (name) => http.post(`/scripts/${name}/parse`).then((r) => r.data),
+  renameScript: (name, newName) => http.post(`/scripts/${name}/rename`, { new_name: newName }).then((r) => r.data),
   // jobs
   listJobs: () => http.get("/jobs").then((r) => r.data),
   getJob: (id) => http.get(`/jobs/${id}`).then((r) => r.data),
@@ -33,11 +34,15 @@ export const api = {
   },
   setSpeed: (speed) => http.post("/voice/speed", { speed }).then((r) => r.data),
   envInfo: () => http.get("/env").then((r) => r.data),
+  // settings
+  getSettings: () => http.get("/settings").then((r) => r.data),
+  saveSettings: (payload) => http.post("/settings", payload).then((r) => r.data),
   // outputs / segments
   listOutputs: () => http.get("/outputs").then((r) => r.data),
   listSegments: (name) => http.get(`/episodes/${name}/segments`).then((r) => r.data),
   deleteSegment: (name, id) => http.delete(`/episodes/${name}/segments/${id}`).then((r) => r.data),
   clearSegments: (name) => http.delete(`/episodes/${name}/segments`).then((r) => r.data),
+  pruneSegments: (name) => http.post(`/episodes/${name}/segments/prune`).then((r) => r.data),
 }
 
 export default api

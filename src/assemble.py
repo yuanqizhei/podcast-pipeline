@@ -35,6 +35,7 @@ def assemble(timeline, segments_root: Path, output_dir: Path, audio_root: Path, 
 
     main = AudioSegment.silent(duration=0, frame_rate=SAMPLE_RATE).set_sample_width(2).set_channels(1)
     beds: list[dict] = []
+    chapters: list[dict] = []
     open_bed = None
     missing: list[str] = []
 
@@ -44,6 +45,7 @@ def assemble(timeline, segments_root: Path, output_dir: Path, audio_root: Path, 
             if not seg_path.exists():
                 missing.append(str(seg_path))
                 continue
+            chapters.append({"title": item.text[:40], "start_ms": len(main)})
             main += AudioSegment.from_file(seg_path).set_frame_rate(SAMPLE_RATE).set_channels(1).set_sample_width(2)
         elif item.type == "pause":
             main += AudioSegment.silent(duration=int(item.seconds * 1000), frame_rate=SAMPLE_RATE).set_sample_width(2).set_channels(1)
@@ -81,10 +83,21 @@ def assemble(timeline, segments_root: Path, output_dir: Path, audio_root: Path, 
         encoding="utf-8",
     )
 
+    # chapter markers for podcast platforms (Apple Podcasts / 小宇宙 etc.)
+    chapters_path = output_dir / f"{timeline.episode}_chapters.json"
+    for i, ch in enumerate(chapters):
+        ch["end_ms"] = chapters[i + 1]["start_ms"] if i + 1 < len(chapters) else len(main)
+        ch["start"] = round(ch.pop("start_ms") / 1000, 3)
+        ch["end"] = round(ch.pop("end_ms") / 1000, 3)
+    chapters_path.write_text(
+        json.dumps({"episode": timeline.episode, "total_ms": len(main), "chapters": chapters}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
     if missing:
         msg = "[warn] skipped missing assets: " + ", ".join(missing)
         print(msg)
         emit({"stage": "assemble", "kind": "log", "message": msg})
-    print(f"voice track: {voice_path} ({len(main) / 1000:.1f}s), beds: {len(beds)}")
-    emit({"stage": "assemble", "kind": "done", "total_ms": len(main), "beds": len(beds), "missing": len(missing)})
+    print(f"voice track: {voice_path} ({len(main) / 1000:.1f}s), beds: {len(beds)}, chapters: {len(chapters)}")
+    emit({"stage": "assemble", "kind": "done", "total_ms": len(main), "beds": len(beds), "missing": len(missing), "chapters": len(chapters)})
     return voice_path, beds_path

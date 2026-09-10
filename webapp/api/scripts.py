@@ -18,12 +18,33 @@ SAFE_NAME_ERROR = "script name may only contain letters, digits, '-' and '_'"
 
 def _script_path(name: str) -> Path:
     if not NAME_RE.match(name):
-        raise ValueError(SAFE_NAME_ERROR)
+        from flask import abort
+
+        abort(400, description=SAFE_NAME_ERROR)
     return SCRIPTS / f"{name}.txt"
 
 
-def _timeline_dict(script_path: Path) -> dict:
+# parse results cached by (mtime) so list/dashboard views don't re-parse every
+# script on each request; asset existence is still checked live (cheap stat)
+_parse_cache: dict[str, tuple[float, object]] = {}
+
+
+def _cached_parse(script_path: Path):
+    key = str(script_path)
+    try:
+        mtime = script_path.stat().st_mtime
+    except OSError:
+        mtime = -1.0
+    hit = _parse_cache.get(key)
+    if hit is not None and hit[0] == mtime:
+        return hit[1]
     tl = parse(script_path)
+    _parse_cache[key] = (mtime, tl)
+    return tl
+
+
+def _timeline_dict(script_path: Path) -> dict:
+    tl = _cached_parse(script_path)
     items = []
     missing = []
     for item in tl.items:
@@ -133,6 +154,26 @@ def delete_script(name: str):
             shutil.rmtree(seg_dir)
             deleted["segments"] = True
     return jsonify({"name": name, "deleted": deleted})
+
+
+@bp.post("/<name>/rename")
+def rename_script(name: str):
+    path = _script_path(name)
+    if not path.exists():
+        return jsonify({"error": f"script not found: {name}"}), 404
+    data = request.get_json(force=True)
+    new_name = (data.get("new_name") or "").strip()
+    if not new_name or not NAME_RE.match(new_name):
+        return jsonify({"error": SAFE_NAME_ERROR}), 400
+    new_path = SCRIPTS / f"{new_name}.txt"
+    if new_path.exists():
+        return jsonify({"error": f"script already exists: {new_name}"}), 400
+    path.rename(new_path)
+    # keep paid TTS cache with the renamed episode
+    seg_dir = SEGMENTS / name
+    if seg_dir.exists():
+        seg_dir.rename(SEGMENTS / new_name)
+    return jsonify({"from": name, "to": new_name, "segments_moved": seg_dir.exists()})
 
 
 @bp.post("/<name>/parse")

@@ -20,9 +20,26 @@ SCRIPTS = ROOT / "script"
 AUDIO = ROOT / "audio"
 SEGMENTS = AUDIO / "segments"
 OUTPUT = AUDIO / "output"
+DATA_DIR = ROOT / "data"
+JOBS_LOG = DATA_DIR / "jobs.jsonl"
 
 COMMANDS = ("build", "tts", "assemble", "mix")
 TERMINAL_STATES = ("done", "failed", "cancelled")
+
+
+def _load_job_history() -> list[dict]:
+    """Replay persisted job records (newest last) so history survives restarts."""
+    if not JOBS_LOG.exists():
+        return []
+    out = []
+    try:
+        for line in JOBS_LOG.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                out.append(json.loads(line))
+    except (json.JSONDecodeError, OSError):
+        pass
+    return out[-JobManager.MAX_KEPT :] if out else []
 
 
 class JobCancelled(Exception):
@@ -102,8 +119,29 @@ class JobManager:
         self._jobs: dict[str, Job] = {}
         self._order: list[str] = []
         self._queue: queue.Queue = queue.Queue()
-        self._mutex = threading.Lock()
+        self._mutex: threading.Lock = threading.Lock()
+        self._replay_history()
         threading.Thread(target=self._worker, daemon=True, name="job-worker").start()
+
+    def _replay_history(self) -> None:
+        import dataclasses
+
+        for rec in _load_job_history():
+            try:
+                fields = {f.name for f in dataclasses.fields(Job)}
+                job = Job(**{k: v for k, v in rec.items() if k in fields})
+                self._jobs[job.id] = job
+                self._order.append(job.id)
+            except TypeError:
+                continue
+
+    def _persist(self, job: Job) -> None:
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with JOBS_LOG.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(job.to_dict(), ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     # -- public API -------------------------------------------------------
 
@@ -263,6 +301,7 @@ class JobManager:
             self._emit(job, {"kind": "log", "message": f"[error] {e}"})
         finally:
             job.finished_at = time.time()
+            self._persist(job)
             self._emit(job, {"kind": "job_done", "status": job.status})
 
 

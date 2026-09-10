@@ -18,7 +18,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="引擎">
-          <el-radio-group v-model="form.provider">
+          <el-radio-group v-model="form.provider" @change="providerTouched = true">
             <el-radio-button value="dryrun">dryrun 零成本</el-radio-button>
             <el-radio-button value="minimax">MiniMax</el-radio-button>
           </el-radio-group>
@@ -115,6 +115,7 @@ const form = reactive({
 })
 
 let es = null
+let providerTouched = false
 
 const stageWeight = { tts: 0.6, assemble: 0.05, mix: 0.35 }
 
@@ -293,10 +294,12 @@ function showHistory(row) {
 
 async function loadHistory() {
   try {
-    const [list, scriptList] = await Promise.all([api.listJobs(), api.listScripts()])
+    const [list, scriptList, voice] = await Promise.all([api.listJobs(), api.listScripts(), api.voiceStatus()])
     history.value = list
     scripts.value = scriptList.map((s) => s.name)
     if (!form.script && scripts.value.length) form.script = scripts.value[0]
+    // default engine follows the saved TTS_PROVIDER setting
+    if (!providerTouched && voice.provider_default) form.provider = voice.provider_default
     const running = list.find((j) => j.status === "running" || j.status === "queued")
     if (running && !activeJob.value) {
       activeJob.value = running

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,12 +8,12 @@ from flask import Blueprint, jsonify, request
 
 from src.tts import MiniMaxProvider
 
+from ..services.envfile import ENV_PATH, update_env
 from ..services.runner import ROOT
 
 bp = Blueprint("voice", __name__, url_prefix="/api/voice")
 
-ENV_PATH = ROOT / ".env"
-SAMPLE_EXT_OK = {".wav", ".mp3", ".m4a"}
+SAMPLE_EXT_OK = {".wav", ".mp3", ".m4a", ".webm", ".ogg", ".mp4"}
 
 
 def _reload_env() -> None:
@@ -58,21 +57,25 @@ def clone_voice():
     tmp = tmp_dir / f"clone_sample{suffix}"
     f.save(tmp)
     try:
+        # normalize any input format (incl. browser webm/opus recordings) to
+        # wav before sending to MiniMax
+        from pydub import AudioSegment
+
+        wav = tmp.with_suffix(".wav")
+        AudioSegment.from_file(tmp).export(wav, format="wav")
         prov = MiniMaxProvider.__new__(MiniMaxProvider)
         prov.api_key = os.environ["MINIMAX_API_KEY"]
         prov.group_id = os.environ["MINIMAX_GROUP_ID"]
         try:
-            voice_id = prov.clone_voice(tmp)
+            voice_id = prov.clone_voice(wav)
         except Exception as e:  # noqa: BLE001
             return jsonify({"error": f"clone failed: {e}"}), 502
+        finally:
+            wav.unlink(missing_ok=True)
     finally:
         tmp.unlink(missing_ok=True)
 
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
-    kept = [l for l in lines if not l.startswith("MINIMAX_VOICE_ID=")]
-    kept.append(f"MINIMAX_VOICE_ID={voice_id}")
-    ENV_PATH.write_text("\n".join(kept) + "\n", encoding="utf-8")
-    os.environ["MINIMAX_VOICE_ID"] = voice_id
+    update_env({"MINIMAX_VOICE_ID": voice_id})
     return jsonify({"voice_id": voice_id, "saved": True})
 
 
@@ -85,19 +88,5 @@ def set_speed():
             raise ValueError
     except (TypeError, ValueError):
         return jsonify({"error": "speed must be a number between 0.5 and 2.0"}), 400
-
-    def upd(line: str) -> str | None:
-        if line.startswith("TTS_SPEED="):
-            return f"TTS_SPEED={speed}"
-        return line
-
-    if ENV_PATH.exists():
-        lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
-        new = [upd(l) for l in lines]
-        if not any(l.startswith("TTS_SPEED=") for l in new):
-            new.append(f"TTS_SPEED={speed}")
-    else:
-        new = [f"TTS_SPEED={speed}"]
-    ENV_PATH.write_text("\n".join(new) + "\n", encoding="utf-8")
-    os.environ["TTS_SPEED"] = str(speed)
+    update_env({"TTS_SPEED": str(speed)})
     return jsonify({"speed": speed, "saved": True})

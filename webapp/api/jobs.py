@@ -27,6 +27,11 @@ def create_job():
     if provider not in (None, "dryrun", "minimax"):
         return jsonify({"error": "provider must be dryrun or minimax"}), 400
 
+    from ..services.runner import SCRIPTS
+
+    if not (SCRIPTS / f"{script}.txt").exists():
+        return jsonify({"error": f"script not found: {script}"}), 400
+
     import os
 
     if not provider:

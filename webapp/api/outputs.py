@@ -7,6 +7,8 @@ from pathlib import Path
 from flask import Blueprint, jsonify
 
 from ..services.runner import OUTPUT, ROOT, SCRIPTS, SEGMENTS, preflight
+from src.parser import parse
+from src.tts import _migrate_legacy_cache
 
 bp = Blueprint("outputs", __name__, url_prefix="/api")
 
@@ -48,6 +50,10 @@ def list_outputs():
             intermediates.append(entry)
         elif p.name == "beds.json":
             entry["kind"] = "beds"
+            intermediates.append(entry)
+        elif p.name.endswith("_chapters.json") and p.stem[: -len("_chapters")] in episodes:
+            entry["kind"] = "chapters"
+            entry["episode"] = p.stem[: -len("_chapters")]
             intermediates.append(entry)
         elif p.name.endswith("_timeline.json") and p.stem[: -len("_timeline")] in episodes:
             entry["kind"] = "timeline"
@@ -106,3 +112,40 @@ def delete_segment(name: str, seg_id: str):
         except (json.JSONDecodeError, OSError):
             pass
     return jsonify({"deleted": seg_id})
+
+
+@bp.post("/episodes/<name>/segments/prune")
+def prune_segments(name: str):
+    """Remove cached segments whose ids no longer appear in the current script
+    (leftovers from script edits)."""
+    seg_dir = SEGMENTS / name
+    script_path = SCRIPTS / f"{name}.txt"
+    if not seg_dir.exists():
+        return jsonify({"error": f"no cache for this episode"}), 404
+    if not script_path.exists():
+        return jsonify({"error": f"script not found: {name}"}), 400
+    try:
+        tl = parse(script_path)
+    except ValueError as e:
+        return jsonify({"error": f"script parse failed: {e}"}), 400
+    live_ids = {i.id for i in tl.items if i.type == "speech"}
+    meta_path = seg_dir / "meta.json"
+    meta = {}
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            meta = {}
+    # rescue legacy positional-id caches (possibly paid audio) first: they are
+    # renamed to content ids instead of being deleted as orphans
+    speech_items = [i for i in tl.items if i.type == "speech"]
+    _migrate_legacy_cache(speech_items, seg_dir, meta, meta_path)
+    removed = []
+    for p in seg_dir.glob("*.mp3"):
+        if p.stem not in live_ids:
+            p.unlink()
+            meta.pop(p.stem, None)
+            removed.append(p.stem)
+    if removed:
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return jsonify({"removed": len(removed), "ids": removed})
