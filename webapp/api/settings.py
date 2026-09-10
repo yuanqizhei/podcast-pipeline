@@ -33,8 +33,12 @@ def _validate(key: str, value: str) -> str | None:
         return f"unknown setting: {key}"
     if key == "TTS_PROVIDER" and value not in ("dryrun", "minimax"):
         return "TTS_PROVIDER must be dryrun or minimax"
-    if key == "MINIMAX_VOICE_ID" and not re.fullmatch(r"[\w\-]+", value):
-        return "MINIMAX_VOICE_ID may only contain letters, digits, '-' and '_'"
+    if key == "MINIMAX_VOICE_ID":
+        # system voices like "Chinese (Mandarin)_Radio_Host" contain spaces/parens;
+        # only guard against chars that would break the .env key=value format
+        if any(c in value for c in ("\n", "\r", "=")):
+            return "MINIMAX_VOICE_ID contains illegal characters"
+        return None
     if key in RANGES:
         lo, hi = RANGES[key]
         try:
