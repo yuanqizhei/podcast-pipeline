@@ -18,9 +18,10 @@ script/episode01.txt  ──►  你克隆的声音朗读  ──►  自动混�
 - **专业混音**：说话时自动压低背景音（sidechain 闪避）、双遍响度测量精确归一到 -16 LUFS 播客标准、防削波限幅
 - **智能缓存**：语音段按内容 hash 缓存且按集隔离——改稿只重新合成变化的段落，多集生产互不干扰
 - **试听模式**：`--limit 3` 先出 30 秒小样验证音色语速，满意再跑全片
+- **发布就绪**：成品自动写入 ID3 标签（节目名/主播）、导出章节时间戳 JSON（小宇宙/Apple Podcasts 可导入）、合成后实测响度报告验证达标
 - **容错设计**：音乐/音效素材缺失不阻塞出片（警告跳过）；脚本指令错误带行号提示；兼容 Windows 记事本的 UTF-8 BOM
 - **零成本验证**：`dryrun` 模式用静音替代真实合成，不花一分钱跑通全流程
-- **Web Studio**：本地可视化控制台——语法高亮脚本编辑器、时间轴预览、一键构建、SSE 实时进度日志、素材库、语音缓存管理
+- **Web Studio**：本地可视化控制台——语法高亮脚本编辑器（语法帮助+模板插入）、时间轴预览、一键构建、SSE 实时进度日志、素材库、浏览器直接录音克隆、系统设置页（密钥/响度参数全部网页配置）、语音缓存管理（单段重合成/孤儿清理）、任务历史（重启不丢）
 
 ## 环境要求
 
@@ -122,11 +123,14 @@ cd frontend && npm run dev        # 终端 2：Vite :5173（/api、/audio 自动
 | 页面 | 功能 |
 |------|------|
 | 仪表盘 | 各集总览（语音块/字数/缓存段/成品状态）、缺失素材提示、新建/删除脚本 |
-| 脚本编辑 | CodeMirror 语法高亮（`@` 指令/注释着色）、Ctrl+S 保存、右侧时间轴预览（含素材就绪检查与时长估算） |
-| 构建任务 | 发起 build/tts/assemble/mix、dryrun/MiniMax 切换、试听 limit、强制重合成；分阶段进度条 + SSE 实时日志；任务可取消、自动排队互斥 |
-| 素材库 | music/sfx 上传、时长探测、在线试听、删除 |
-| 声音克隆 | 密钥/voice_id 状态一览、上传样本一键克隆（自动写回 .env）、语速调整 |
-| 产物输出 | 成品试听下载、中间产物查看、按集语音缓存管理（单段删除强制重合成） |
+| 脚本编辑 | CodeMirror 语法高亮（`@` 指令/注释着色）、Ctrl+S 保存、语法帮助抽屉+指令模板一键插入、新建/重命名（缓存跟随）/txt 导入、右侧时间轴预览（含素材就绪检查与时长估算） |
+| 构建任务 | 发起 build/tts/assemble/mix、dryrun/MiniMax 切换（默认跟随设置页）、试听 limit、强制重合成；分阶段进度条 + SSE 实时日志；任务可取消、自动排队互斥、历史重启不丢 |
+| 素材库 | music/sfx 上传、时长探测、在线试听、删除、一键复制脚本引用路径 |
+| 声音克隆 | 密钥/voice_id 状态一览、**浏览器直接录音**（自动转 wav）、上传样本一键克隆（自动写回 .env）、voice_id 手动设置/清除、语速调整 |
+| 产物输出 | 成品试听下载、章节时间戳查看下载、中间产物、按集语音缓存管理（单段删除/一键重合成/孤儿缓存清理——先迁移旧缓存再删真孤儿） |
+| 系统设置 | MiniMax 密钥（脱敏显示）、引擎/模型/语速、节目信息（ID3）、响度目标 I/TP/LRA——全部保存即生效，各项可恢复默认 |
+
+**配置也可以完全在网页里完成**：系统设置页写入 `.env`（白名单校验+脱敏），无需手动编辑文件。
 
 ### 技术说明
 
@@ -162,6 +166,27 @@ cd frontend && npm run dev        # 终端 2：Vite :5173（/api、/audio 自动
 | `python run.py` | 启动 Web Studio（http://127.0.0.1:5000） |
 
 所有命令均支持 `--provider dryrun|minimax`（默认读 `.env` 的 `TTS_PROVIDER`）。
+
+## 配置项（.env）
+
+| 键 | 说明 | 默认 |
+|----|------|------|
+| `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID` | MiniMax 平台密钥（必填，真实合成时） | - |
+| `MINIMAX_MODEL` | 合成模型 | `speech-01-turbo` |
+| `MINIMAX_VOICE_ID` | 克隆音色 ID（clone 后自动写入，也可在网页手动管理） | - |
+| `TTS_PROVIDER` | 默认引擎 `minimax` / `dryrun` | `dryrun` |
+| `TTS_SPEED` | 语速 0.5 ~ 2.0 | `0.95` |
+| `PODCAST_NAME` / `PODCAST_ARTIST` | 节目名/主播，写入成品 MP3 的 ID3 标签 | 空 |
+| `LOUDNORM_I` / `LOUDNORM_TP` / `LOUDNORM_LRA` | 响度归一目标（LUFS / dBTP / LU） | `-16` / `-1.5` / `11` |
+
+以上均可通过 Web 设置页配置，保存立即生效。
+
+## 测试
+
+```bash
+pip install pytest
+pytest            # parser/tts/assemble/mix 单元测试 + Web API 集成测试
+```
 
 ## 工作原理
 
@@ -237,20 +262,22 @@ git config --global http.https://github.com.proxy http://127.0.0.1:7897
 podcast-pipeline/
 ├── script/          # 口播稿（每期一个 txt）
 ├── src/
-│   ├── parser.py    # 标注脚本 → 时间轴
-│   ├── tts.py       # MiniMax 合成 / dryrun / 声音克隆 / 按集缓存
-│   ├── assemble.py  # 主轨组装（语音+停顿+插入音效）
-│   ├── mix.py       # ffmpeg 终混（闪避+限幅+双遍响度归一）
+│   ├── parser.py    # 标注脚本 → 时间轴（内容寻址 id + 跨平台相对路径）
+│   ├── tts.py       # MiniMax 合成 / dryrun / 声音克隆 / 按集缓存 / 旧缓存迁移
+│   ├── assemble.py  # 主轨组装（语音+停顿+插入音效+章节时间轴）
+│   ├── mix.py       # ffmpeg 终混（闪避+限幅+双遍响度归一+ID3+响度报告）
 │   └── cli.py       # 命令行入口
 ├── webapp/          # Web Studio 后端（Flask）
-│   ├── api/         # scripts / jobs / assets / voice / outputs 蓝图
-│   └── services/    # runner.py 后台任务执行器（互斥+SSE 事件）
+│   ├── api/         # scripts / jobs / assets / voice / settings / outputs 蓝图
+│   └── services/    # runner.py 后台任务（互斥+SSE+历史持久化）/ envfile.py 配置读写
 ├── frontend/        # Web Studio 前端（Vue 3 + Vite + Element Plus）
+├── tests/           # pytest（单元 + API 集成）
+├── data/            # 任务历史（运行时生成，不入库）
 ├── run.py           # Web Studio 一键启动
 ├── audio/
 │   ├── segments/{episode}/   # 语音段缓存（自动管理）
-│   ├── music/ · sfx/         # 素材（手动放入）
-│   └── output/               # 中间产物与成品
+│   ├── music/ · sfx/         # 素材（手动放入或网页上传）
+│   └── output/               # 中间产物、成品与章节时间戳
 ├── .env.example     # 配置模板
 └── requirements.txt
 ```

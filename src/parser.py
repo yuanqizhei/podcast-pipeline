@@ -121,7 +121,7 @@ def parse(script_path: Path) -> Timeline:
         elif cmd in ("insert", "bed"):
             flush_speech()
             tokens = payload.split()
-            if not tokens:
+            if not tokens or "=" in tokens[0]:
                 raise ValueError(f"line {lineno}: @{cmd} requires a file path (e.g. '@{cmd} music/bgm.mp3 gain=-20')")
             try:
                 kv = parse_kv(payload)
